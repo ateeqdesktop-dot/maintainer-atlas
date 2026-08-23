@@ -1,8 +1,12 @@
 name: Maintainer Atlas
-description: Evidence-backed Open Source release-readiness audit
+description: Evidence-backed Open Source readiness audit with optional bounded probes
 inputs:
   policy:
     description: Optional path to a JSON policy file
+    required: false
+    default: ""
+  probe-config:
+    description: Optional path to a reviewed .atlas-probe.toml plan; empty means passive audit only
     required: false
     default: ""
 runs:
@@ -15,8 +19,12 @@ runs:
       run: python -m pip install .
     - shell: bash
       run: |
+        set -euo pipefail
         if [[ -n "${{ inputs.policy }}" ]]; then
           maintainer-atlas audit . --policy "${{ inputs.policy }}" --format sarif --output maintainer-atlas.sarif
         else
           maintainer-atlas audit . --format sarif --output maintainer-atlas.sarif
+        fi
+        if [[ -n "${{ inputs.probe-config }}" ]]; then
+          maintainer-atlas probe . --config "${{ inputs.probe-config }}" --format json --output atlas-probe.json
         fi

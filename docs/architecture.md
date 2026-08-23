@@ -1,74 +1,56 @@
-# Maintainer Atlas — Architecture and Product Specification
+# Architecture
 
-## Product vision
+## Product boundary
 
-Maintainer Atlas makes Open Source release readiness inspectable. A maintainer runs one command or adds one GitHub Action, receives findings grounded in repository evidence, and can compare readiness snapshots over time without uploading source code or trusting an opaque score.
+Maintainer Atlas has two explicit execution modes. `audit` is passive: it walks a bounded local repository, reads text as untrusted data, applies pure rules, and emits evidence-backed findings. `probe` is opt-in: it executes a reviewed array-form command plan with `shell=False`, a fixed working directory, bounded time and output, and a deterministic evidence record. The passive core never calls the probe engine.
 
-## Users and use cases
-
-The primary user is an Open Source maintainer preparing a release or trying to reduce contributor friction. Secondary users are repository reviewers, platform teams defining organization-wide repository policies, and contributors deciding whether a project is safe and practical to adopt.
-
-The core use cases are: audit a local repository; audit a GitHub repository archive; fail CI only for explicitly configured severities; emit SARIF for GitHub code scanning; generate a human-readable remediation report; create a baseline snapshot; compare a candidate snapshot with the baseline; and customize rules or waivers through a policy file.
-
-## Product boundaries
-
-Maintainer Atlas is a passive analyzer in the MVP. It reads bounded repository files and Git metadata, never executes repository code, never installs dependencies, never follows remote links, and never uploads source. It is not a vulnerability scanner, popularity ranking, hosted dashboard, code formatter, or build system. A future sandboxed verification mode must remain opt-in and isolated from the passive core.
-
-## Architecture
+## System shape
 
 ```text
-repository path / GitHub archive
-              |
-              v
-      bounded source loader
-              |
-              v
-  normalized repository snapshot
-              |
-      +-------+--------+
-      |                |
-      v                v
- rule registry     snapshot/diff engine
-      |                |
-      v                v
- evidence findings   deterministic delta
-      \                /
-       +------v-------+
-              |
-       report renderers
- JSON | Markdown | SARIF | exit code
+local repository
+      |
+      +---------------------------+
+      |                           |
+      v                           v
+bounded snapshot loader      TOML probe config
+      |                           |
+      v                           v
+pure rule registry           validated probe plan
+      |                           |
+      +-------------+-------------+
+                    |
+                    v
+             JSON / Markdown / SARIF
+                    |
+             GitHub Action artifacts
 ```
 
-The implementation is a dependency-light Python package with four layers. `atlas.model` contains immutable domain types and serialization. `atlas.inspect` loads and normalizes only permitted repository metadata. `atlas.rules` contains pure rule functions receiving a snapshot and returning evidence-backed findings. `atlas.reporting` renders stable JSON, Markdown, and SARIF. `atlas.cli` handles arguments, policy loading, exit semantics, and filesystem boundaries.
+The package is intentionally dependency-light. `core.py` contains immutable passive domain types, the bounded loader, pure rules, policy evaluation, and snapshot diffs. `probe_config.py` parses and validates versioned TOML plans. `probe.py` executes the plan and computes stable output digests. `cli.py` owns filesystem boundaries, rendering, and exit codes.
 
-## Domain model
+## Passive audit data model
 
-A `RepositorySnapshot` contains repository identity, detected ecosystems, bounded file inventory, normalized GitHub-like metadata when available, workflow metadata, and a digest. A `Finding` contains a stable rule ID, title, severity (`info`, `warning`, `error`, `critical`), category, message, remediation, evidence references, and deterministic fingerprint. A `Policy` contains enabled rules, severity overrides, ignored rules, waivers with expiry, and threshold behavior. A `Report` contains the snapshot digest, findings, counts, verdict, and tool version.
+A `RepositorySnapshot` contains a root path, bounded file inventory, detected ecosystems, file sizes, and a digest. A `Finding` contains a stable rule ID, title, category, severity, remediation, repository-relative evidence, and a fingerprint. A `Report` contains the tool version, snapshot digest, findings, diagnostics, and verdict. Evidence references never include source snippets by default.
 
-Evidence references use repository-relative paths and optional line ranges. Content snippets are not emitted by default to avoid leaking secrets. Files are read with byte and line limits. Symlinks, hidden directories outside the repository root, binary files, and unsupported encodings are skipped safely.
+## Probe data model
 
-## Built-in rule packs
+A `ProbeConfig` contains a schema version, profile name, global timeout, output limit, network policy signal, and ordered `ProbeStep` values. A step has a unique ID, an argv array, an optional flag, and an optional timeout. `ProbeReport` contains the configuration digest, repository path, network policy, verdict, normalized step results, diagnostics, and an evidence digest.
 
-The MVP ships with rules covering `license.present`, `readme.present`, `contributing.present`, `security.policy_present`, `community.code_of_conduct`, `community.issue_templates`, `community.pull_request_template`, `ownership.codeowners_present`, `ci.workflow_present`, `ci.workflow_pinned_actions`, `tests.detected`, `package.metadata_present`, `release.changelog_present`, `release.version_source`, `docs.quickstart_present`, and `repo.no_large_tracked_artifacts`.
+The evidence digest excludes volatile duration and preview fields. It is computed over canonical JSON with sorted keys and stable separators. Step results retain durations for human diagnostics and output byte counts and SHA-256 digests for reproducibility comparisons. Raw output is omitted by default.
 
-Rules are intentionally evidence-backed rather than score-based. The default verdict is `pass` when no error/critical findings exist, `review` when warnings exist, and `block` when errors/critical findings exist. Users may configure a threshold.
+## Security model
 
-## Error and security model
+All repository content is untrusted. The passive loader never executes scripts, YAML, hooks, package managers, or workflow commands. It skips symlinks and generated directories, caps the file count and text size, and rejects paths outside the repository root.
 
-Malformed policy, unreadable repository paths, traversal attempts, invalid UTF-8, oversized files, and malformed SARIF inputs fail closed with actionable CLI errors. Rule failures are isolated: one malformed optional artifact becomes a finding or diagnostic and cannot crash the full audit. The analyzer treats all repository content as untrusted data; it does not execute YAML, shell, Python, package scripts, hooks, or workflow commands. GitHub archive input is fetched only in a future explicit adapter; the MVP accepts local paths to preserve a zero-network guarantee.
+Probe commands are explicit argv arrays and are invoked with `shell=False`, `stdin=DEVNULL`, a fixed `cwd`, an allowlisted `PATH` and `HOME`, sequential execution, bounded command count, bounded timeout, and bounded captured output. The MVP does not claim kernel-level isolation or reliable network denial for a normal host process. The `network` field is therefore a policy signal and a guardrail for future execution profiles, not a sandbox guarantee.
 
-## Performance and extensibility
+## Error flow
 
-The loader performs one bounded directory walk and caches normalized file metadata. Rules are pure and independently testable. New rule packs register through a stable `Rule` protocol; no dynamic imports or plugin execution occur in the MVP. Reports are deterministic across runs, enabling content-addressed snapshots and meaningful diffs. The future extension point is a versioned policy/rule-pack API, not arbitrary executable plugins.
+Invalid paths, malformed TOML, unsupported schema versions, invalid limits, duplicate step IDs, empty commands, and NUL bytes are configuration errors and return exit code 2. A process timeout, spawn error, or non-zero exit becomes a normalized step status. Required-step failure yields `block`; optional-step failure yields `review`; all required steps passing yields `pass`. Diagnostics such as output truncation are retained without exposing raw output.
 
-## CI/CD contract
+## Extensibility
 
-The GitHub Action runs `python -m maintainer_atlas audit . --format sarif --output maintainer-atlas.sarif`, uploads SARIF, and optionally writes a Markdown summary. Exit code 0 means pass, 1 means review, 2 means block or invalid input. The action is pinned to a release tag in examples and can be invoked without secrets.
+New passive rules must remain pure functions over `RepositorySnapshot`. New probe profiles should generate or validate configuration, not bypass the plan contract. Future container execution, signing, GitHub Checks, and ecosystem adapters belong behind explicit interfaces and must not weaken local-first operation or silently convert passive audit into code execution.
 
-## MVP acceptance criteria
+## CI contract
 
-A fresh checkout can run an audit with the standard library only. The included healthy fixture passes. The incomplete fixture produces stable findings with valid evidence paths. A hostile fixture containing symlinks, binary files, huge files, malformed YAML-like text, and executable-looking scripts is never executed and is handled deterministically. JSON, Markdown, and SARIF outputs validate. Snapshot diff identifies added, removed, and resolved fingerprints. Tests cover rules, policy, loader safety, renderers, CLI exit codes, and determinism. CI runs lint-free tests on supported Python versions.
-
-## Roadmap
-
-The next release can add a GitHub metadata adapter, ecosystem-aware package rules, policy-pack publishing, signed snapshots, contributor journey checks, reproducibility probes inside a disposable sandbox, and GitHub Checks annotations. A hosted service is explicitly out of scope until local-first adoption proves demand.
+The composite action runs the passive SARIF audit by default. If `probe-config` is supplied, it runs the reviewed plan and writes `atlas-probe.json`. The repository CI self-tests both paths and uploads the two evidence files. All third-party action references in the checked-in workflow and action definition are pinned to immutable SHAs except the documented artifact upload reference, which should be pinned before a production release.

@@ -1,0 +1,9 @@
+version = 1
+profile = "project-self-check"
+timeout_seconds = 120
+max_output_bytes = 65536
+network = "deny"
+
+[[steps]]
+id = "tests"
+command = ["python", "-m", "pytest", "-q"]

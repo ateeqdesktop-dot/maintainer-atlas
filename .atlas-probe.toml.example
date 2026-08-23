@@ -1,0 +1,14 @@
+version = 1
+profile = "python"
+timeout_seconds = 120
+max_output_bytes = 65536
+# This is a policy signal in the MVP; true OS network isolation requires a container profile.
+network = "deny"
+
+[[steps]]
+id = "install"
+command = ["python", "-m", "pip", "install", "-e", "."]
+
+[[steps]]
+id = "tests"
+command = ["python", "-m", "pytest", "-q"]

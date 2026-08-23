@@ -1,8 +1,20 @@
-name: Maintainer Atlas
+name: CI
 on: [push, pull_request]
 jobs:
-  audit:
+  quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
       - uses: ./
+        with:
+          probe-config: .atlas-probe.toml
+      - shell: bash
+        run: python -m pytest -q
+      - shell: bash
+        run: test -s maintainer-atlas.sarif && test -s atlas-probe.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maintainer-atlas-evidence
+          path: |
+            maintainer-atlas.sarif
+            atlas-probe.json
