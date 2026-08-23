@@ -14,6 +14,9 @@ authors = [{name = "ateeqdesktop-dot"}]
 keywords = ["opensource", "maintainer", "repository-health", "ci", "sarif", "reproducibility", "evidence", "developer-experience"]
 classifiers = ["Development Status :: 3 - Alpha", "Environment :: Console", "Programming Language :: Python :: 3", "Topic :: Software Development :: Quality Assurance"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [project.scripts]
 maintainer-atlas = "maintainer_atlas.cli:main"
 

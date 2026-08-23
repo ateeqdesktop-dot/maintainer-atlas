@@ -102,7 +102,7 @@ See [`docs/atlas-probe-design.md`](docs/atlas-probe-design.md) for the product s
 ## Development
 
 ```bash
-python -m pip install -e .
+python -m pip install -e '.[dev]'
 python -m pytest -q
 python -m maintainer_atlas audit examples/healthy --format markdown
 ```
