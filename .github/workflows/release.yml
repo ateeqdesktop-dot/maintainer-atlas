@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -27,9 +28,14 @@ jobs:
           python -m pip install --force-reinstall dist/*.whl
           maintainer-atlas audit examples/healthy --format json --output release-evidence.json
           test -s release-evidence.json
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --title "Maintainer Atlas $GITHUB_REF_NAME"
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --title "Maintainer Atlas $GITHUB_REF_NAME"
+          fi
