@@ -1,6 +1,6 @@
 # Maintainer Atlas
 
-> **Make Open Source readiness inspectable.**
+> **Evidence-backed release decisions for open-source repositories.**
 
 Maintainer Atlas is a local-first, evidence-backed auditor for open-source repositories. Its passive audit checks whether a repository is understandable, maintainable, testable, documented, and safe to contribute to. **Atlas Probe** adds an explicit, bounded contributor-readiness run that verifies declared installation and test commands, then emits a portable evidence bundle.
 
@@ -26,7 +26,8 @@ Generate machine-readable passive evidence:
 ```bash
 maintainer-atlas audit . --format json --output atlas.json --snapshot baseline.json
 maintainer-atlas audit . --format sarif --output maintainer-atlas.sarif
-maintainer-atlas diff baseline.json atlas.json
+maintainer-atlas audit . --format json --baseline baseline.json --snapshot current.json
+maintainer-atlas diff baseline.json current.json
 ```
 
 ## Atlas Probe
@@ -68,11 +69,11 @@ The MVP records command identity, status, exit code, duration, output sizes, SHA
 | Release | Changelog and version/release metadata |
 | Hygiene | Oversized tracked artifacts |
 
-Each finding includes a stable rule ID, severity, remediation, fingerprint, and repository-relative evidence. Exit codes are stable: `0` means pass, `1` means review, and `2` means a blocking finding or invalid input.
+Each finding includes a stable rule ID, severity, remediation, fingerprint, and repository-relative evidence. With `--baseline`, findings are classified as `new`, `unchanged`, or `resolved`, and the JSON report includes a deterministic `evidence_id`. Exit codes are stable: `0` means pass, `1` means review, and `2` means a blocking finding or invalid input.
 
 ## GitHub Action
 
-The repository ships an action entry point for CI. Pin the action reference to an immutable release or commit according to your organization policy:
+The repository ships a composite action for CI. Pin the action reference to an immutable release or commit according to your organization policy. It emits SARIF and, when a probe plan is supplied, JSON evidence:
 
 ```yaml
 name: Maintainer Atlas
@@ -81,10 +82,10 @@ jobs:
   readiness:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ateeqdesktop-dot/maintainer-atlas@v0.1.0
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+      - uses: ateeqdesktop-dot/maintainer-atlas@v0.3.0
         with:
-          args: audit . --format sarif --output maintainer-atlas.sarif
+          probe-config: .atlas-probe.toml
 ```
 
 For probes, keep the plan reviewed in the repository and run it as a separate, clearly named job. The MVP treats `network = "deny"` as a policy signal; reliable OS-level network isolation requires the future container execution profile and is not falsely claimed by the local process runner.
@@ -107,7 +108,7 @@ python -m pytest -q
 python -m maintainer_atlas audit examples/healthy --format markdown
 ```
 
-The test suite covers passive audit contracts, stable fingerprints, TOML validation, dry runs, deterministic evidence digests, optional failures, timeouts, output limits, and CLI exit codes.
+The test suite covers passive audit contracts, stable fingerprints, TOML validation, dry runs, deterministic evidence digests, baseline status transitions, JUnit output, optional failures, timeouts, output limits, and CLI exit codes. Use `--format junit` for generic CI test-report ingestion.
 
 ## Roadmap
 

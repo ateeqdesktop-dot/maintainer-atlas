@@ -9,6 +9,10 @@ inputs:
     description: Optional path to a reviewed .atlas-probe.toml plan; empty means passive audit only
     required: false
     default: ""
+  baseline:
+    description: Optional path to a prior JSON evidence bundle for regression-aware status
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -20,11 +24,14 @@ runs:
     - shell: bash
       run: |
         set -euo pipefail
-        if [[ -n "${{ inputs.policy }}" ]]; then
-          maintainer-atlas audit . --policy "${{ inputs.policy }}" --format sarif --output maintainer-atlas.sarif
-        else
-          maintainer-atlas audit . --format sarif --output maintainer-atlas.sarif
-        fi
+        audit_args=(audit . --format sarif --output maintainer-atlas.sarif)
+        if [[ -n "${{ inputs.policy }}" ]]; then audit_args+=(--policy "${{ inputs.policy }}"); fi
+        if [[ -n "${{ inputs.baseline }}" ]]; then audit_args+=(--baseline "${{ inputs.baseline }}"); fi
+        maintainer-atlas "${audit_args[@]}"
+        json_args=(audit . --format json --output maintainer-atlas.json)
+        if [[ -n "${{ inputs.policy }}" ]]; then json_args+=(--policy "${{ inputs.policy }}"); fi
+        if [[ -n "${{ inputs.baseline }}" ]]; then json_args+=(--baseline "${{ inputs.baseline }}"); fi
+        maintainer-atlas "${json_args[@]}" || test $? -le 2
         if [[ -n "${{ inputs.probe-config }}" ]]; then
           maintainer-atlas probe . --config "${{ inputs.probe-config }}" --format json --output atlas-probe.json
         fi

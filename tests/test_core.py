@@ -117,3 +117,38 @@ def test_probe_cli_json(tmp_path):
     data = json.loads(output.read_text())
     assert data["verdict"] == "pass"
     assert data["evidence_digest"]
+
+
+def test_evidence_bundle_has_stable_identity_and_statuses(tmp_path):
+    from maintainer_atlas.evidence import classify_against_baseline, evidence_id
+
+    report = audit(load_snapshot("examples/incomplete"))
+    baseline = {"findings": [
+        {"fingerprint": report.findings[0].fingerprint, "rule_id": report.findings[0].rule_id,
+         "title": report.findings[0].title, "category": report.findings[0].category,
+         "severity": report.findings[0].severity, "message": report.findings[0].message,
+         "remediation": report.findings[0].remediation, "evidence": []}
+    ]}
+    bundle = classify_against_baseline(report, baseline)
+    assert evidence_id(report) == bundle["evidence_id"]
+    statuses = {item["status"] for item in bundle["findings"]}
+    assert "unchanged" in statuses and "new" in statuses
+    assert bundle["summary"]["new"] > 0
+
+
+def test_junit_output_is_ci_consumable():
+    from maintainer_atlas.evidence import junit
+
+    xml = junit(audit(load_snapshot("examples/incomplete")))
+    assert xml.startswith("<testsuite")
+    assert "tests=\"" in xml
+    assert "license.present" in xml
+
+
+def test_cli_can_emit_junit_and_baseline(tmp_path, monkeypatch):
+    monkeypatch.chdir(Path(__file__).parents[1])
+    baseline = tmp_path / "baseline.json"
+    assert main(["audit", "examples/healthy", "--format", "json", "--snapshot", str(baseline)]) == 0
+    output = tmp_path / "report.xml"
+    assert main(["audit", "examples/healthy", "--format", "junit", "--baseline", str(baseline), "--output", str(output)]) == 0
+    assert output.read_text().startswith("<testsuite")
